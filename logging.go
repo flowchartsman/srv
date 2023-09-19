@@ -2,151 +2,157 @@ package srv
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
-	"runtime"
+	"os"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"andy.dev/srv/internal/loghandler/instrumentation"
+	"andy.dev/srv/log"
 )
 
-type LogFormat int
+// Logger is an alias to the [log.Logger] type, so that you don't need to import
+// the package to define your job functions
+type Logger = log.Logger
 
+// LogLevel represents a logging level. Aliased from [slog].
+type LogLevel = slog.Level
+
+// Logging Levels
 const (
-	formatBegin LogFormat = iota
-	// FormatAuto will log using a human-readable format when attached to a
-	// terminal, and JSON otherwise.
-	FormatAuto
-	// FormatJSON will log using JSON-formatted output.
-	FormatJSON
-	// FormatKV will log using a traditional field=value logging format.
-	FormatKV
-	// FormatHuman will log using a human-readable format
-	FormatHuman
-	// todo: FormatText
-	// todo: FormatPrety
-	formatEnd
-)
-
-// Alias slog types to avoid the import
-type LogLevel int
-
-// Log levels represent the lowest-allowable level of logging across the
-// service. All log messages at the specified level and below will be logged,
-// unless they are restricted further at the component level.
-const (
-	levelBegin = LogLevel(slog.LevelDebug - 1)
-	// LevelDebug specifies debug level logging, which is the lowest. All
-	// messages will be logged unless otherwise restricted by component.
 	LevelDebug = LogLevel(slog.LevelDebug)
-	// LevelInfo specifies info leve logging and above.
-	LevelInfo = LogLevel(slog.LevelInfo)
-	// LevelWarn specifies warn level logging and above.
-	LevelWarn = LogLevel(slog.LevelWarn)
-	// LevelError will log only error-level logging.
+	LevelInfo  = LogLevel(slog.LevelInfo)
+	LevelWarn  = LogLevel(slog.LevelWarn)
 	LevelError = LogLevel(slog.LevelError)
-	levelEnd   = LogLevel(slog.LevelError + 1)
 )
 
-func levelName(level LogLevel) string {
-	switch level {
-	case LevelDebug:
-		return "LevelDebug"
-	case LevelInfo:
-		return "LevelInfo"
-	case LevelWarn:
-		return "LevelWarn"
-	case LevelError:
-		return "LevelError"
-	default:
-		return "UNKNOWN LOG LEVEL"
-	}
+// Fatal logs a structured message at the error level with the root logger and
+// exits the program immediately.
+//
+// NOTE: This bypasses any graceful shutdown handling,  so its use outside of
+// main() is highly discouraged.
+func (s *Srv) Fatal(msg string, attrs ...any) {
+	s.fatal(log.Up(1), msg, attrs...)
 }
 
-type SubLoggerOptions int
+// Fatal logs a formatted message at the error level with the root logger and
+// exits the program immediately.
+//
+// NOTE: This bypasses any graceful shutdown handling,  so its use outside of
+// main() is highly discouraged.
+func (s *Srv) Fatalf(format string, args ...any) {
+	s.fatal(log.Up(1), fmt.Sprintf(format, args...))
+}
 
 const (
-	_ SubLoggerOptions = iota
-	// WithSource tells the sublogger to log the basename of the file and
-	// line on which its message was logged from the dependency.
-	WithSource
-	// FullSource tells the sublogger to log the full file path and line
-	// on which its message was logged from the dependency.
-	FullSource
-	// MeasureErrors tells the sublogger to increment the global error counter
-	// for any messages logged at the Error level.
-	MeasureErrors
+	// ShowLocation will attach the filename and line number to the logging message
+	LogLocation = 1 << iota
+	// FullLocation will include the full path of the filename where the logging
+	// message ocurred.
+	LogFullLocation
+	// NoMetrics will prevent the logger from tracking error, warn and info
+	// message counts.
+	NoMetrics
 )
 
-// SubLogger returns an *slog.Logger with a static "component" field. It's
-// useful for passing to dependencies that take a *slog.Logger.
-func SubLogger(componentName string, minLevel LogLevel, options ...SubLoggerOptions) *slog.Logger {
-	mustHaveInit("create a component logger")
-	return newSubLogger(componentName, minLevel, options...)
-}
-
-// LogWrapper takes care of initializing a wrapped logger. Useful for quickly
-// creating loggers for verious packages in srv/logwrap
-func LogWrapper[T any](componentName string, wrapperFn func(*slog.Logger) T, minLevel LogLevel, options ...SubLoggerOptions) T {
-	mustHaveInit("create a log wrapper")
-	return wrapperFn(newSubLogger(componentName, minLevel, options...))
-}
-
-func newSubLogger(componentName string, minLevel LogLevel, options ...SubLoggerOptions) *slog.Logger {
+// NewLogger creates a [*log.Logger] that will attach a "logger" label to its
+// output and metrics with the value of the provided name. If the consumer takes a [*slog.Logger], you can call the
+// [Logger.Slogger] method to get it. Loggers will be tracked by srv,
+// allowing for dynamic level modification at runtime via the `/loglevel route`,
+// so multiple subloggers cannot have the same name.
+func (s *Srv) NewLogger(name string, level LogLevel, flags int) *log.Logger {
 	// check if the user has set a minimum log level that is less than the
-	// minimum framework log level. If so, messages below this level won't
+	// minimum log level. If so, messages below this level won't
 	// appear, so issue a warning about that.
-	if !defaultHandler().Enabled(context.Background(), slog.Level(minLevel)) {
-		srvWarnf(location(2), "sublogger %q has log level %s, which is less than the current minimum", componentName, levelName(minLevel))
+	if !s.logger.Enabled(level) {
+		rootLevel, _ := s.logHandler.GetLevel()
+		s.warn(log.Up(2), "logger minimum level is less than current level", "logger", name, "current_level", rootLevel, "logger_level", level.String())
 	}
-	doSource := false
-	doTrim := true
-	var counter prometheus.Counter
-	for _, o := range options {
-		switch o {
-		case WithSource:
-			doSource = true
-		case FullSource:
-			doSource = true
-			doTrim = false
-		case MeasureErrors:
-			counter = errCount
+	levelVar := slog.LevelVar{}
+	levelVar.Set(level)
+	handlerOpts := instrumentation.HandlerOptions{
+		Name:         name,
+		MinLevel:     level,
+		ShowLocation: flags&LogLocation != 0,
+		TrimCode:     flags&LogFullLocation == 0,
+	}
+	if flags&NoMetrics == 0 {
+		handlerOpts.ErrorCounter = s.errCount.With("logger", name)
+		handlerOpts.WarnCounter = s.warnCount.With("logger", name)
+		handlerOpts.InfoCounter = s.infoCount.With("logger", name)
+	}
+	logHandler := instrumentation.NewHandler(s.logHandler, handlerOpts)
+	s.loglevelHandler.AddLogHandler(logHandler)
+	return log.NewLogger(slog.New(logHandler).With("logger", name))
+}
+
+// internal
+// TODO: remove all <level>f messages for internal.
+func (s *Srv) debugf(loc log.CodeLocation, format string, args ...any) {
+	s.logger.Logf(context.Background(), slog.LevelDebug, loc, format, args...)
+}
+
+func (s *Srv) info(loc log.CodeLocation, msg string, attrs ...any) {
+	s.logger.Log(context.Background(), slog.LevelInfo, loc, msg, attrs...)
+}
+
+func (s *Srv) warn(loc log.CodeLocation, msg string, attrs ...any) {
+	s.logger.Log(context.Background(), slog.LevelWarn, loc, msg, attrs...)
+}
+
+func (s *Srv) warnf(loc log.CodeLocation, format string, args ...any) {
+	s.logger.Logf(context.Background(), slog.LevelWarn, loc, format, args...)
+}
+
+func (s *Srv) error(loc log.CodeLocation, msg string, attrs ...any) {
+	s.logger.Log(context.Background(), slog.LevelError, loc, msg, attrs...)
+}
+
+func (s *Srv) errorf(loc log.CodeLocation, format string, args ...any) {
+	s.logger.Logf(context.Background(), slog.LevelError, loc, format, args...)
+}
+
+func (s *Srv) fatal(loc log.CodeLocation, msg string, attrs ...any) {
+	s.termLogErr(loc, "SRV FATAL: "+msg, attrs...)
+	s.closeTermlog()
+	os.Exit(1)
+}
+
+func (s *Srv) termLogErr(loc log.CodeLocation, msg string, attrs ...any) {
+	if s.logger == nil {
+		basicLog(os.Stderr, loc, msg, attrs...)
+	} else {
+		s.error(loc, msg, attrs...)
+	}
+	s.termLog(loc, msg, attrs...)
+}
+
+func (s *Srv) termLog(loc log.CodeLocation, msg string, attrs ...any) {
+	if s.termination == nil {
+		return
+	}
+	basicLog(s.termination, loc, msg, attrs...)
+}
+
+func (s *Srv) closeTermlog() {
+	if s.termination == nil {
+		return
+	}
+	if err := s.termination.Close(); err != nil {
+		if s.logger == nil {
+			basicLog(os.Stderr, noloc, "failed to close termination log", err)
+		} else {
+			s.error(noloc, "failed to close termination log", err)
 		}
 	}
-	return slog.New(newsrvHandler(defaultHandler(), srvHandlerOptions{
-		minlevel: slog.Level(minLevel),
-		doCode:   doSource,
-		trimCode: doTrim,
-		errCt:    counter,
-	}).WithAttrs([]slog.Attr{slog.String("component", componentName)}))
 }
 
-func newJSONHandler(w io.Writer) slog.Handler {
-	return slog.NewJSONHandler(w, &slog.HandlerOptions{
-		AddSource: false,
-		Level:     slog.LevelDebug,
-	})
-}
-
-func newKVHandler(w io.Writer) slog.Handler {
-	return slog.NewTextHandler(w, &slog.HandlerOptions{
-		AddSource: false,
-		Level:     slog.LevelDebug,
-	})
-}
-
-func newAutoHandler(w io.Writer) slog.Handler {
-	if isTerm(w) {
-		return newHumanHandler(humanHandlerOpts{
-			minlevel:    slog.LevelDebug,
-			doSource:    false,
-			ignoreAttrs: []string{"service", "system"},
-		}, w)
+func basicLog(w io.Writer, loc log.CodeLocation, msg string, args ...any) {
+	out := []byte(msg)
+	out = fmt.Append(out, " ")
+	if loc != noloc {
+		args = append(args, "("+loc.String()+")")
 	}
-	return newJSONHandler(w)
-}
-
-func location(skip int) uintptr {
-	var pcs [1]uintptr
-	runtime.Callers(skip+2, pcs[:])
-	return pcs[0]
+	out = fmt.Appendln(out, args...)
+	w.Write(out)
 }

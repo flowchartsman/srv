@@ -3,118 +3,142 @@ package srv
 import (
 	"errors"
 	"fmt"
-	"log/slog"
+	"strings"
 	"time"
 
+	"andy.dev/srv/log"
 	"github.com/go-kit/kit/metrics"
 	promkit "github.com/go-kit/kit/metrics/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var (
-	registry prometheus.Registerer = prometheus.NewRegistry()
-	errCount                       = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "error_messages_total",
-		Help: "the total number of error messages logged",
-	})
+const (
+	CounterMetricSuffix = `_total`
+	TimerMetricSuffix   = `_duration_seconds`
 )
 
 // Registry returns the service prometheus registry for plugins/packages that
 // can use it.
-func Registry() prometheus.Registerer {
-	return registry
+func (s *Srv) Registry() prometheus.Registerer {
+	return s.registry
 }
 
-// NewGauge returns a Prometheus Counter.
+// NewCounter returns a Prometheus Counter.
 //
-// NOTE: label cardinality must match to use .With().
-func NewCounter(name, help string, labelNames ...string) metrics.Counter {
+// NAMING: all counters will be automatically suffixed with _total if not already.
+// NOTE: value cardinality must match label cardinality to use .With().
+func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counter {
+	if !strings.HasSuffix(name, CounterMetricSuffix) {
+		name += "_total"
+	}
 	counter := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name:        name,
-		Help:        help,
-		ConstLabels: map[string]string{},
+		Name: name,
+		Help: help,
 	}, labelNames)
-	registry.MustRegister(counter)
+	s.registry.MustRegister(counter)
 	return promkit.NewCounter(counter)
 }
 
 // NewGauge returns a Prometheus Gauge.
 //
-// NOTE: label cardinality must match to use .With().
-func NewGauge(name, help string, labelNames ...string) metrics.Gauge {
+// NAMING: Gauges should not be suffixed with "_total".
+// NOTE: value cardinality must match label cardinality to use .With().
+func (s *Srv) NewGauge(name, help string, labelNames ...string) metrics.Gauge {
 	gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: name,
 		Help: help,
 	}, labelNames)
-	registry.MustRegister(gauge)
+	s.registry.MustRegister(gauge)
 	return promkit.NewGauge(gauge)
 }
 
 // NewSummary returns a Prometheus Summary.
 //
-//   - Summary is essentially an auto-bucketing Histogram.
-//
-// NOTE: label cardinality must match to use .With().
-func NewSummary(name, help string, labelNames ...string) metrics.Histogram {
+// NOTE: value cardinality must match label cardinality to use .With().
+func (s *Srv) NewSummary(name, help string, labelNames ...string) metrics.Histogram {
 	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{
 		Name: name,
 		Help: help,
 	}, labelNames)
-	registry.MustRegister(summary)
+	s.registry.MustRegister(summary)
 	return promkit.NewSummary(summary)
 }
 
 // NewHistogram returns a Prometheus Histogram.
 //
-// NOTE: label cardinality must match to use .With().
-func NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
+// NOTE: value cardinality must match label cardinality to use .With().
+func (s *Srv) NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
 	histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    name,
 		Help:    help,
 		Buckets: buckets,
 	}, labelNames)
-	registry.MustRegister(histogram)
+	s.registry.MustRegister(histogram)
 	return promkit.NewHistogram(histogram)
 }
 
-// LatencyChart is a histogram representing the milliseconds taken for network
-// interactions with a service or dependency, or for the work done in a single
-// span.
-type LatencyChart interface {
-	ObserveSpan(from time.Time)
-	With(labelValues ...string) LatencyChart
-}
-
-// NewLatencyChart returns a new [LatencyChart].
-//   - Final metric name will be in the form: `latency_<name>_ms`
-//   - If metrics are disabled, returns a nop LatencyChart.
+// Timer is a wrapped histogram  tailored to measure durations for latency
+// tracking.
 //
-// NOTE: label cardinality must match to use .With().
-func NewLatencyChart(name, help string, labelNames ...string) LatencyChart {
-	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{
-		Name: "latency_" + name + "_ms",
-		Help: help,
+// Calling [*Timer.Span] will return a function that, when called, will create
+// an observation of fractional seconds elapsed since the call to Span. This is
+// particularly useful in conjunction with defer to measure the duration of a
+// function call.`
+//
+// Example:
+//
+//		 requestTimer := srv.NewTimer(
+//			"my_route_seconds",
+//			"time in seconds to run my_route",
+//	     []time.Duration{150*time.Millisecond, 300*time.Millisecond, 500*time.Millisecond, time.Second},
+//			"method")
+//
+//			userRoute := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+//				defer requestTimer.Span()()
+//				// route handler code
+//			})
+//
+// Following prometheus convention, durations are measured in seconds.
+//
+// NOTE: value cardinality must match label cardinality to use .With().
+type Timer struct {
+	hv *prometheus.HistogramVec
+}
+
+// NewTimer returns a duration and latency observation metric backed by a
+// histogram. Following Prometheus convention of measuring in base units, all
+// Timers are measured in fractional seconds.
+//
+// NAMING: Timers will automatically be suffixed with `_duration_seconds`, so
+// there is no need to supply this.
+func (s *Srv) NewTimer(name, help string, buckets []time.Duration, labelNames ...string) *Timer {
+	floatBuckets := make([]float64, len(buckets))
+	for i := range buckets {
+		floatBuckets[i] = buckets[i].Seconds()
+	}
+	h := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    name,
+		Help:    help,
+		Buckets: floatBuckets,
 	}, labelNames)
-	registry.MustRegister(summary)
-	return &latencyChartT{promkit.NewSummary(summary)}
+	s.registry.MustRegister(h)
+	return &Timer{hv: h}
 }
 
-type latencyChartT struct {
-	h metrics.Histogram
-}
-
-func (lc *latencyChartT) ObserveSpan(from time.Time) {
-	lc.h.Observe(float64(time.Since(from).Milliseconds()))
-}
-
-func (lc *latencyChartT) With(labelValues ...string) LatencyChart {
-	return &latencyChartT{
-		lc.h.With(labelValues...),
+// Span returns a function that, when called, will me
+func (t *Timer) Span(labelValues ...string) TimerSpan {
+	start := time.Now()
+	return func() {
+		t.hv.WithLabelValues(labelValues...).Observe(time.Since(start).Seconds())
 	}
 }
 
+// TimerSpan is the measurement function returned from [*Timer.Span], when
+// called, it will perform the measurement
+type TimerSpan func()
+
 type promhttpLogger struct {
-	logger *slog.Logger
+	logger *log.Logger
 }
 
 func (pl *promhttpLogger) Println(v ...any) {
@@ -127,17 +151,10 @@ func (pl *promhttpLogger) Println(v ...any) {
 		if mok && eok {
 			multiErr := prometheus.MultiError{}
 			if errors.As(err, &multiErr) {
-				// log them all at the exact same timestamp
-				now := time.Now()
 				numerr := len(multiErr)
-				logRecord := slog.NewRecord(now, slog.LevelError, msg, location(1))
-				logRecord.AddAttrs(slog.String(slog.MessageKey, msg), slog.Int("total_errors", numerr))
-				for i, e := range multiErr {
-					r := logRecord.Clone()
-					r.AddAttrs(slog.String("err", e.Error()), slog.Int("error_number", i+1))
-					pl.logger.Handler().Handle(srvCtx, r)
+				for i, err := range multiErr {
+					pl.logger.Error(msg, err, "total_errors", numerr, "error_no", i)
 				}
-				return
 			}
 		}
 	}

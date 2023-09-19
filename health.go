@@ -1,60 +1,67 @@
 package srv
 
 import (
-	"net/http"
-	"sync/atomic"
+	"fmt"
+	"time"
+
+	"andy.dev/srv/internal/health"
 )
 
-var defaultReadinessHandler = &readinessHandler{}
+type HealthCheckOption func(hc *health.HealthCheck) error
 
-func Started() {
-	if defaultReadinessHandler.setReady() {
-		srvInfof(noLocation, "service has started")
+// Interval sets the health check interval. The job will be scheduled at this
+// interval. Must be greater than the check timeout. Default: 30 seconds.
+func Interval(interval time.Duration) HealthCheckOption {
+	return func(hc *health.HealthCheck) error {
+		if interval <= 0 {
+			return fmt.Errorf("interval must be greater than 0")
+		}
+		hc.Interval = interval
+		return nil
 	}
 }
 
-func UnavailableWhile(reason string, f func() error) error {
-	srvInfo(location(1), "service has become unavailable", "reason", reason)
-	defaultReadinessHandler.add()
-	res := f()
-	defaultReadinessHandler.sub()
-	srvInfo(location(1), "service has become available again", "reason", reason)
-	return res
-}
-
-type readinessHandler struct {
-	isReady     atomic.Bool
-	isClosed    atomic.Bool
-	outstanding atomic.Int64
-}
-
-// false if already ready
-// could double-log if called concurrently for the first time, but eh...
-func (rh *readinessHandler) setReady() bool {
-	if rh.isReady.Load() {
-		return false
+// Timeout sets the health check timeout. If the job takes longer than this
+// to run, it will be cancelled and considered to have failed. Must be less than
+// the check interval. Default: 10 seconds
+func Timeout(timeout time.Duration) HealthCheckOption {
+	return func(hc *health.HealthCheck) error {
+		if timeout <= 0 {
+			return fmt.Errorf("timeout must be greater than 0")
+		}
+		hc.Timeout = timeout
+		return nil
 	}
-	rh.isReady.Store(true)
-	return true
 }
 
-func (rh *readinessHandler) add() {
-	rh.outstanding.Add(1)
-}
-
-func (rh *readinessHandler) sub() {
-	rh.outstanding.Add(-1)
-}
-
-func (rh *readinessHandler) close() {
-	rh.isClosed.Store(true)
-}
-
-func (rh *readinessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	if rh.isClosed.Load() || rh.outstanding.Load() > 0 || !rh.isReady.Load() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		return
+// MaxFailures sets the number of acceptable failures before the health check is
+// considered failed. If the check returns nil (success) before this number is
+// reached, the counter will be reset, and the check will remain healthy.
+// Default: 0 (no failures allowed)
+func MaxFailures(maxFailures int) HealthCheckOption {
+	return func(hc *health.HealthCheck) error {
+		if maxFailures <= 0 {
+			return fmt.Errorf("max failures must be greater than 0")
+		}
+		hc.MaxFailures = maxFailures
+		return nil
 	}
-	w.WriteHeader(http.StatusOK)
+}
+
+// AddHealthCheck adds an asynchronous self-reporting health check job whose
+// status will be reported at the /livez route. Checks will be considered failed
+// if they return err != nil or if they take longer than the configured timeout.
+// Checks may have an optional maximum number of failures, allowing them to
+// remain healthy until they fail N number of times in a row.
+func (s *Srv) AddHealthCheck(ID string, checkFn JobFn, options ...HealthCheckOption) error {
+	hc := &health.HealthCheck{
+		ID: ID,
+		Fn: checkFn,
+	}
+	for _, o := range options {
+		if err := o(hc); err != nil {
+			return err
+		}
+	}
+	return s.healthHandler.AddCheck(hc)
 }

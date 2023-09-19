@@ -10,6 +10,27 @@ import (
 	"strings"
 )
 
+// Is reports whether any error in err's tree matches target.
+//
+// This calls [errors.Is] under the hood, and is intended to allow this package
+// to serve as a drop-in replacement for [errors].
+func Is(err, target error) bool { return stderr.Is(err, target) }
+
+// As finds the first error in err's tree that matches target, and if one is
+// found, sets target to that error value and returns true. Otherwise, it returns
+// false.
+//
+// This calls [errors.As] under the hood, and is intended to allow this package
+// to serve as a drop-in replacement for [errors].
+func As(err error, target any) bool { return stderr.As(err, target) }
+
+// Join returns an error that wraps the given errors. Any nil error values are
+// discarded. Join returns nil if every value in errs is nil.
+//
+// This calls [errors.Join] under the hood, and is intended to allow this package
+// to serve as a drop-in replacement for [errors].
+func Join(errs ...error) error { return stderr.Join(errs...) }
+
 // Error is an error type with embedded stack trace and optional logging
 // attributes.
 type Error struct {
