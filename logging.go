@@ -113,14 +113,14 @@ func (s *Srv) errorf(loc log.CodeLocation, format string, args ...any) {
 }
 
 func (s *Srv) fatal(loc log.CodeLocation, msg string, attrs ...any) {
-	s.termLogErr(loc, "SRV FATAL: "+msg, attrs...)
+	s.termLogErr(loc, msg, attrs...)
 	s.closeTermlog()
 	os.Exit(1)
 }
 
 func (s *Srv) termLogErr(loc log.CodeLocation, msg string, attrs ...any) {
 	if s.logger == nil {
-		basicLog(os.Stderr, loc, msg, attrs...)
+		basicLog(os.Stderr, loc, "SRV FATAL: "+msg, attrs...)
 	} else {
 		s.error(loc, msg, attrs...)
 	}

@@ -232,12 +232,12 @@ func (s *Srv) Start(jobs ...JobFn) error {
 		return ErrAlreadyStarted
 	}
 	if !s.userFlags.IsParsed() {
-		if s.hasUserFlags {
-			s.fatal(log.Up(1), "Start() called before ParseFlags(), user flags would be invalid.")
-		}
 		// TODO: don't want to log internal locations if this fails, so make
 		// s.parseFlags() ([]string, error)
 		s.ParseFlags()
+		if s.hasUserFlags {
+			s.fatal(log.Up(1), "Start() called before ParseFlags(), user flags would be invalid.")
+		}
 	}
 	// Set up signal monitoring to stop us if signaled. Rather than using
 	// signal.NotifyContext, which would merely cancel a context, we use the
