@@ -1,25 +1,55 @@
 package srv
 
-import "context"
+import (
+	"context"
 
-// JobFn is a job to be run at startup. The service will run until either a
-// single job has registered an error or until all jobs have completed
-// successfully. A logger will be automatically supplied to your function for
-// logging messages.
-type JobFn func(context.Context, *Logger) error
+	"andy.dev/srv/log"
+)
 
-// Job creates a JobFn from a function that takes a context and a [*Logger]
-// along with an additional argument of any type.
+// TaskFn is the basic function type that drives jobs, health checks and so on.
+type TaskFn func(context.Context, *Logger) error
+
+// Job represents a task to be run and tracked by the [Srv] instance.
+// On start, the Run method will be invoked with a context that will be
+// cancelled in case of shutdown as well as a [*Logger]. A return value of nil
+// marks the job as completed, while an error marks the job as failed.
+type Job interface {
+	Run(context.Context, *Logger) error
+}
+
+// Task creates a TaskFn function that takes an additional argument of any type.
 //
 // Example:
 //
-//	func myjobFn(ctx context.Context, log *srv.Logger input *MyType) error {
-//	  // ...
-//	}
+//		func myjob(ctx context.Context, log *srv.Logger input *MyType) error {
+//		  // ...
+//		}
 //
-//	srv.Start(srv.Job(myjobFn, &MyType{/*...*/}))
-func Job[T any](fn func(context.Context, *Logger, T) error, arg T) JobFn {
+//	 srv.AddJob(srv.JobFn(Task(myjobFn, &MyType{/*...*/})))
+func Task[T any](fn func(context.Context, *Logger, T) error, arg T) TaskFn {
 	return func(ctx context.Context, logger *Logger) error {
 		return fn(ctx, logger, arg)
 	}
+}
+
+type jobFn TaskFn
+
+func (j jobFn) Run(ctx context.Context, log *Logger) error {
+	return j(ctx, log)
+}
+
+func (s *Srv) AddJobs(jobs ...Job) {
+	// TODO: can't fatal here if the type is locked. Better to return error and
+	// move Srv to unexported instance
+	// s.mu.Lock()
+	// defer s.mu.Unlock()
+	if s.started {
+		s.fatal(log.Up(1), "AddJobs called after Start()")
+	}
+	s.jobs = append(s.jobs, jobs...)
+}
+
+// AddJobFns allows one or more [TaskFn] functions to be added as jobs.
+func (s *Srv) AddJobFn(fn TaskFn) {
+	s.AddJobs(jobFn(fn))
 }

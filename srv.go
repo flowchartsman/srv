@@ -68,11 +68,12 @@ type Srv struct {
 	startupHandler *health.StartupHandler
 	healthHandler  *health.Handler
 	// jobs
+	jobs    []Job
 	jobErrs chan error
 	// state
 	started bool
 	// shutdown handlers
-	shutdownHandlers []JobFn
+	shutdownHandlers []TaskFn
 }
 
 // New creates a new [*Srv] and initializes logging and basic instrumentation.
@@ -225,7 +226,7 @@ func New(serviceInfo ServiceInfo) (*Srv, error) {
 	return s, nil
 }
 
-func (s *Srv) Start(jobs ...JobFn) error {
+func (s *Srv) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
@@ -289,12 +290,12 @@ func (s *Srv) Start(jobs ...JobFn) error {
 	s.startupHandler.SetStarted()
 
 	// begin running any jobs
-	if len(jobs) > 0 {
+	if len(s.jobs) > 0 {
 		eg, egctx := errgroup.WithContext(s.ctx)
-		for i := range jobs {
-			job := jobs[i]
+		for i := range s.jobs {
+			job := s.jobs[i]
 			eg.Go(func() error {
-				return job(egctx, s.logger)
+				return job.Run(egctx, s.logger)
 			})
 		}
 		go func() {
@@ -302,8 +303,8 @@ func (s *Srv) Start(jobs ...JobFn) error {
 		}()
 	}
 
-	// Wait for death.
-	s.shutdownWatcher(signals, s.jobErrs, len(jobs))
+	// Wait for death with calm stoicism.
+	s.shutdownWatcher(signals, s.jobErrs, len(s.jobs))
 
 	return nil
 }

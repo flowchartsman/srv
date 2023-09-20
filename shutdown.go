@@ -14,7 +14,7 @@ import (
 // If a shutdown handler panics, the rest of the handlers will be skipped.
 //
 // All shutdown handlers must be added before [*srv.Start()] is called.
-func (s *Srv) AddShutdownHandlers(shutdownHandlers ...JobFn) error {
+func (s *Srv) AddShutdownHandlers(shutdownHandlers ...TaskFn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
@@ -100,7 +100,7 @@ func (s *Srv) shutdown() {
 }
 
 // TODO: add timeouts
-func (s *Srv) runShutdownHandler(ctx context.Context, handler JobFn) (panicked bool, err error) {
+func (s *Srv) runShutdownHandler(ctx context.Context, handler TaskFn) (panicked bool, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			panicked = true

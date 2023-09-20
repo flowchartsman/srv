@@ -11,7 +11,8 @@ func main() {
 		Name:  "buildflags example",
 		About: "This service has its version number assigned via build tags.",
 	})
-	s.Start(logMessage)
+	s.AddJobFn(logMessage)
+	s.Start()
 }
 
 func logMessage(_ context.Context, log *srv.Logger) error {

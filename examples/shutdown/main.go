@@ -12,13 +12,14 @@ func main() {
 	s, _ := srv.New(srv.ServiceInfo{
 		Name: "testsvc",
 	})
+	s.AddJobFn(printStuff)
 	s.AddShutdownHandlers(
 		shutdownGood,
-		srv.Job(shutdownBad, "something went wrong"),
+		srv.Task(shutdownBad, "something went wrong"),
 		shutdownPanic,
 		shutdownSkipped,
 	)
-	s.Start(printStuff)
+	s.Start()
 }
 
 func printStuff(_ context.Context, log *srv.Logger) error {

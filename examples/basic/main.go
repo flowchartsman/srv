@@ -13,20 +13,27 @@ func main() {
 		Name:   "basicsvc",
 		System: "srv examples",
 	})
+
+	// supports flags
+	var errMsg string
+	s.FlagStringVar(&errMsg, "err-msg", "I warned you!", "the error to return from the job")
+	s.ParseFlags()
+
+	s.AddJobFn(srv.Task(jobWillFail, errMsg))
 	s.AddShutdownHandlers(shutdown)
-	s.Start(jobWillFail)
+	s.Start()
 }
 
-func jobWillFail(_ context.Context, log *srv.Logger) error {
+func jobWillFail(_ context.Context, log *srv.Logger, failMsg string) error {
 	for i := 1; i <= 5; i++ {
 		if i < 5 {
-			log.Info("I am going to die on message #5", "message_number", i)
+			log.Info("I am going to fail on message #5", "message_number", i)
 		} else {
 			log.Warn("Here I go!", "message_number", i)
 		}
 		doWork()
 	}
-	return errors.New("I warned you!")
+	return errors.New(failMsg)
 }
 
 func shutdown(_ context.Context, log *srv.Logger) error {

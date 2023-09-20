@@ -1,11 +1,29 @@
 package srv
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"andy.dev/srv/internal/health"
+	"andy.dev/srv/log"
 )
+
+// Healthcheck is a self-reported health check.
+// After startup, the Check method will be called periodically, and its result
+// checked and advertised on the `/livez` route. If it returns nil, the check is
+// considered to be OK, whereas an error value will mark the check as failed.
+type Healthcheck interface {
+	Check(context.Context, *Logger) error
+}
+
+// HealthcheckFn wraps a single [Task] function as a health check.
+type HealthcheckFn TaskFn
+
+// Check allows the HealthcheckFn to implement [Healthcheck].
+func (h HealthcheckFn) Check(ctx context.Context, log *Logger) error {
+	return h(ctx, log)
+}
 
 type HealthCheckOption func(hc *health.HealthCheck) error
 
@@ -53,10 +71,17 @@ func MaxFailures(maxFailures int) HealthCheckOption {
 // if they return err != nil or if they take longer than the configured timeout.
 // Checks may have an optional maximum number of failures, allowing them to
 // remain healthy until they fail N number of times in a row.
-func (s *Srv) AddHealthCheck(ID string, checkFn JobFn, options ...HealthCheckOption) error {
+func (s *Srv) AddHealthCheck(ID string, healthChecker Healthcheck, options ...HealthCheckOption) error {
+	// TODO: can't fatal here if the type is locked. Better to return error and
+	// move Srv to unexported instance
+	// s.mu.Lock()
+	// defer s.mu.Unlock()
+	if s.started {
+		s.fatal(log.Up(1), "AddHealthCheck called after Start()")
+	}
 	hc := &health.HealthCheck{
 		ID: ID,
-		Fn: checkFn,
+		Fn: healthChecker.Check,
 	}
 	for _, o := range options {
 		if err := o(hc); err != nil {

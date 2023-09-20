@@ -12,7 +12,8 @@ func main() {
 	s, _ := srv.New(srv.ServiceInfo{
 		Name: "loggers example",
 	})
-	s.Start(logStuff)
+	s.AddJobFn(logStuff)
+	s.Start()
 }
 
 func logStuff(_ context.Context, log *srv.Logger) error {
