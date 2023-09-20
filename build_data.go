@@ -21,7 +21,7 @@ type buildData struct {
 	vcsDirty    bool
 }
 
-func (s *Srv) getBuildData() *buildData {
+func (s *instance) getBuildData() *buildData {
 	bd := &buildData{
 		version: "<no version>",
 	}

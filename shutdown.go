@@ -14,7 +14,7 @@ import (
 // If a shutdown handler panics, the rest of the handlers will be skipped.
 //
 // All shutdown handlers must be added before [*srv.Start()] is called.
-func (s *Srv) AddShutdownHandlers(shutdownHandlers ...JobFn) error {
+func (s *instance) AddShutdownHandlers(shutdownHandlers ...JobFn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
@@ -24,7 +24,7 @@ func (s *Srv) AddShutdownHandlers(shutdownHandlers ...JobFn) error {
 	return nil
 }
 
-func (s *Srv) shutdownWatcher(signals <-chan os.Signal, jobErrs <-chan error, numJobs int) {
+func (s *instance) shutdownWatcher(signals <-chan os.Signal, jobErrs <-chan error, numJobs int) {
 EVENTS:
 	for {
 		select {
@@ -58,7 +58,7 @@ EVENTS:
 	s.shutdown()
 }
 
-func (s *Srv) shutdown() {
+func (s *instance) shutdown() {
 	normal := true
 
 	numHandlers := len(s.shutdownHandlers)
@@ -100,7 +100,7 @@ func (s *Srv) shutdown() {
 }
 
 // TODO: add timeouts
-func (s *Srv) runShutdownHandler(ctx context.Context, handler JobFn) (panicked bool, err error) {
+func (s *instance) runShutdownHandler(ctx context.Context, handler JobFn) (panicked bool, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			panicked = true

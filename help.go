@@ -15,12 +15,12 @@ const (
 	minwidth = 79
 )
 
-func (s *Srv) printBuildData() {
+func (s *instance) printBuildData() {
 	fmt.Fprintf(os.Stdout, "%s v%s\n", s.srvInfo.Name, s.getBuildData())
 	os.Exit(0)
 }
 
-func (s *Srv) printFlagsHelp(flags ff.Flags, isErr bool) {
+func (s *instance) printFlagsHelp(flags ff.Flags, isErr bool) {
 	out := os.Stdout
 	if isErr {
 		out = os.Stderr

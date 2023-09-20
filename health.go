@@ -53,7 +53,7 @@ func MaxFailures(maxFailures int) HealthCheckOption {
 // if they return err != nil or if they take longer than the configured timeout.
 // Checks may have an optional maximum number of failures, allowing them to
 // remain healthy until they fail N number of times in a row.
-func (s *Srv) AddHealthCheck(ID string, checkFn JobFn, options ...HealthCheckOption) error {
+func (s *instance) AddHealthCheck(ID string, checkFn JobFn, options ...HealthCheckOption) error {
 	hc := &health.HealthCheck{
 		ID: ID,
 		Fn: checkFn,

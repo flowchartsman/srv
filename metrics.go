@@ -19,7 +19,7 @@ const (
 
 // Registry returns the service prometheus registry for plugins/packages that
 // can use it.
-func (s *Srv) Registry() prometheus.Registerer {
+func (s *instance) Registry() prometheus.Registerer {
 	return s.registry
 }
 
@@ -27,7 +27,7 @@ func (s *Srv) Registry() prometheus.Registerer {
 //
 // NAMING: all counters will be automatically suffixed with _total if not already.
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counter {
+func (s *instance) NewCounter(name, help string, labelNames ...string) metrics.Counter {
 	if !strings.HasSuffix(name, CounterMetricSuffix) {
 		name += "_total"
 	}
@@ -43,7 +43,7 @@ func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counte
 //
 // NAMING: Gauges should not be suffixed with "_total".
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewGauge(name, help string, labelNames ...string) metrics.Gauge {
+func (s *instance) NewGauge(name, help string, labelNames ...string) metrics.Gauge {
 	gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: name,
 		Help: help,
@@ -55,7 +55,7 @@ func (s *Srv) NewGauge(name, help string, labelNames ...string) metrics.Gauge {
 // NewSummary returns a Prometheus Summary.
 //
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewSummary(name, help string, labelNames ...string) metrics.Histogram {
+func (s *instance) NewSummary(name, help string, labelNames ...string) metrics.Histogram {
 	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{
 		Name: name,
 		Help: help,
@@ -67,7 +67,7 @@ func (s *Srv) NewSummary(name, help string, labelNames ...string) metrics.Histog
 // NewHistogram returns a Prometheus Histogram.
 //
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
+func (s *instance) NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
 	histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    name,
 		Help:    help,
@@ -111,7 +111,7 @@ type Timer struct {
 //
 // NAMING: Timers will automatically be suffixed with `_duration_seconds`, so
 // there is no need to supply this.
-func (s *Srv) NewTimer(name, help string, buckets []time.Duration, labelNames ...string) *Timer {
+func (s *instance) NewTimer(name, help string, buckets []time.Duration, labelNames ...string) *Timer {
 	floatBuckets := make([]float64, len(buckets))
 	for i := range buckets {
 		floatBuckets[i] = buckets[i].Seconds()

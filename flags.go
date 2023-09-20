@@ -13,7 +13,7 @@ import (
 )
 
 // ParseFlags parses all flags and returns the args left over after a successful parse.
-func (s *Srv) ParseFlags() []string {
+func (s *instance) ParseFlags() []string {
 	if s.userFlags.IsParsed() {
 		s.error(log.Up(1), "ignoring extra call to ParseFlags()")
 		return nil
@@ -50,14 +50,14 @@ func (s *Srv) ParseFlags() []string {
 // FlagBool adds a boolean flag to the configuration.
 //
 // Returns a *bool that will be set when [ParseFlags] is called.
-func (s *Srv) FlagBool(name string, defaultValue bool, usage string) *bool {
+func (s *instance) FlagBool(name string, defaultValue bool, usage string) *bool {
 	return addUserFlag(s, name, defaultValue, usage, s.userFlags.Bool)
 }
 
 // FlagBoolVar adds a boolean flag to the configuration.
 //
 // Takes a *bool that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagBoolVar(ptr *bool, name string, defaultValue bool, usage string) {
+func (s *instance) FlagBoolVar(ptr *bool, name string, defaultValue bool, usage string) {
 	addUserFlagVar(s, name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.Bool{
@@ -70,14 +70,14 @@ func (s *Srv) FlagBoolVar(ptr *bool, name string, defaultValue bool, usage strin
 // FlagInt adds an integer flag to the configuration.
 //
 // Returns an *int that will be set when [ParseFlags] is called.
-func (s *Srv) FlagInt(name string, defaultValue int, usage string) *int {
+func (s *instance) FlagInt(name string, defaultValue int, usage string) *int {
 	return addUserFlag(s, name, defaultValue, usage, s.userFlags.Int)
 }
 
 // FlagIntVar adds an integer flag to the configuration
 //
 // Takes an *int that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagIntVar(ptr *int, name string, defaultValue int, usage string) {
+func (s *instance) FlagIntVar(ptr *int, name string, defaultValue int, usage string) {
 	addUserFlagVar(s, name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.Int{
@@ -90,14 +90,14 @@ func (s *Srv) FlagIntVar(ptr *int, name string, defaultValue int, usage string) 
 // FlagString adds a string flag to the configuration.
 //
 // Returns a *string that will be set when [ParseFlags] is called.
-func (s *Srv) FlagString(name string, defaultValue string, usage string) *string {
+func (s *instance) FlagString(name string, defaultValue string, usage string) *string {
 	return addUserFlag(s, name, defaultValue, usage, s.userFlags.String)
 }
 
 // FlagStringVar adds a string flag to the configuration.
 //
 // Takes a *string that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagStringVar(ptr *string, name string, defaultValue string, usage string) {
+func (s *instance) FlagStringVar(ptr *string, name string, defaultValue string, usage string) {
 	addUserFlagVar(s, name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.String{
@@ -165,7 +165,7 @@ func (s *Srv) FlagStringVar(ptr *string, name string, defaultValue string, usage
 // }
 
 // TODO: Better Sync here w/flags
-func addUserFlag[T any](s *Srv, flagName string, defaultValue T, usage string, setter func(rune, string, T, string) *T) *T {
+func addUserFlag[T any](s *instance, flagName string, defaultValue T, usage string, setter func(rune, string, T, string) *T) *T {
 	caller := log.Up(2)
 	if s.started {
 		s.fatal(caller, "flags can't be added after Start()")
@@ -189,7 +189,7 @@ func addUserFlag[T any](s *Srv, flagName string, defaultValue T, usage string, s
 
 // TODO: this one can actually be a method again
 // TODO: Better Sync here w/flags
-func addUserFlagVar(s *Srv, flagName string, flag ff.CoreFlagConfig) {
+func addUserFlagVar(s *instance, flagName string, flag ff.CoreFlagConfig) {
 	caller := log.Up(2)
 	if s.started {
 		s.fatal(caller, "flags can't be added after Start()")

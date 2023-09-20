@@ -31,7 +31,7 @@ const (
 //
 // NOTE: This bypasses any graceful shutdown handling,  so its use outside of
 // main() is highly discouraged.
-func (s *Srv) Fatal(msg string, attrs ...any) {
+func (s *instance) Fatal(msg string, attrs ...any) {
 	s.fatal(log.Up(1), msg, attrs...)
 }
 
@@ -40,7 +40,7 @@ func (s *Srv) Fatal(msg string, attrs ...any) {
 //
 // NOTE: This bypasses any graceful shutdown handling,  so its use outside of
 // main() is highly discouraged.
-func (s *Srv) Fatalf(format string, args ...any) {
+func (s *instance) Fatalf(format string, args ...any) {
 	s.fatal(log.Up(1), fmt.Sprintf(format, args...))
 }
 
@@ -60,7 +60,7 @@ const (
 // [Logger.Slogger] method to get it. Loggers will be tracked by srv,
 // allowing for dynamic level modification at runtime via the `/loglevel route`,
 // so multiple subloggers cannot have the same name.
-func (s *Srv) NewLogger(name string, level LogLevel, flags int) *log.Logger {
+func (s *instance) NewLogger(name string, level LogLevel, flags int) *log.Logger {
 	// check if the user has set a minimum log level that is less than the
 	// minimum log level. If so, messages below this level won't
 	// appear, so issue a warning about that.
@@ -88,37 +88,37 @@ func (s *Srv) NewLogger(name string, level LogLevel, flags int) *log.Logger {
 
 // internal
 // TODO: remove all <level>f messages for internal.
-func (s *Srv) debugf(loc log.CodeLocation, format string, args ...any) {
+func (s *instance) debugf(loc log.CodeLocation, format string, args ...any) {
 	s.logger.Logf(context.Background(), slog.LevelDebug, loc, format, args...)
 }
 
-func (s *Srv) info(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) info(loc log.CodeLocation, msg string, attrs ...any) {
 	s.logger.Log(context.Background(), slog.LevelInfo, loc, msg, attrs...)
 }
 
-func (s *Srv) warn(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) warn(loc log.CodeLocation, msg string, attrs ...any) {
 	s.logger.Log(context.Background(), slog.LevelWarn, loc, msg, attrs...)
 }
 
-func (s *Srv) warnf(loc log.CodeLocation, format string, args ...any) {
+func (s *instance) warnf(loc log.CodeLocation, format string, args ...any) {
 	s.logger.Logf(context.Background(), slog.LevelWarn, loc, format, args...)
 }
 
-func (s *Srv) error(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) error(loc log.CodeLocation, msg string, attrs ...any) {
 	s.logger.Log(context.Background(), slog.LevelError, loc, msg, attrs...)
 }
 
-func (s *Srv) errorf(loc log.CodeLocation, format string, args ...any) {
+func (s *instance) errorf(loc log.CodeLocation, format string, args ...any) {
 	s.logger.Logf(context.Background(), slog.LevelError, loc, format, args...)
 }
 
-func (s *Srv) fatal(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) fatal(loc log.CodeLocation, msg string, attrs ...any) {
 	s.termLogErr(loc, msg, attrs...)
 	s.closeTermlog()
 	os.Exit(1)
 }
 
-func (s *Srv) termLogErr(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) termLogErr(loc log.CodeLocation, msg string, attrs ...any) {
 	if s.logger == nil {
 		basicLog(os.Stderr, loc, "SRV FATAL: "+msg, attrs...)
 	} else {
@@ -127,14 +127,14 @@ func (s *Srv) termLogErr(loc log.CodeLocation, msg string, attrs ...any) {
 	s.termLog(loc, msg, attrs...)
 }
 
-func (s *Srv) termLog(loc log.CodeLocation, msg string, attrs ...any) {
+func (s *instance) termLog(loc log.CodeLocation, msg string, attrs ...any) {
 	if s.termination == nil {
 		return
 	}
 	basicLog(s.termination, loc, msg, attrs...)
 }
 
-func (s *Srv) closeTermlog() {
+func (s *instance) closeTermlog() {
 	if s.termination == nil {
 		return
 	}
