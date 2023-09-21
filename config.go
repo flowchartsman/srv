@@ -110,6 +110,13 @@ func initConfig() (*srvConfig, error) {
 	case errors.Is(err, ff.ErrUnknownFlag):
 		// deferring unknown flags until the user flags have a chance to
 		// represent their own flags later
+	case errors.Is(err, os.ErrNotExist):
+		if configFlag, hasConfigFlag := commonFlags.GetFlag("config"); hasConfigFlag {
+			if configFlag.IsSet() {
+				return nil, fmt.Errorf("couldn't open config file: %v", err)
+			}
+		}
+		return nil, err
 	default:
 		return nil, err
 	}
