@@ -14,12 +14,12 @@ import (
 )
 
 var (
-	muFlags      sync.Mutex
-	didParse     bool
-	hasUserFlags bool
-	srvFlags     *ff.CoreFlags
-	// flagsproviders
-	userFlags = ff.NewFlags("")
+	muFlags          sync.Mutex
+	didParse         bool
+	hasUserFlags     bool
+	srvFlags         *ff.CoreFlags
+	srvProvidedFlags []providerCtx
+	userFlags        = ff.NewFlags("")
 )
 
 var errAlreadyParsed = errors.New("ParseFlags(): ignoring duplicate call")
@@ -49,19 +49,17 @@ func parseFlags() ([]string, error) {
 	if didParse {
 		return nil, errAlreadyParsed
 	}
-
+	didParse = true
 	combinedFlags := srvFlags
 
 	if hasUserFlags {
-		// flagN := s.srvFlags
-		// for i := range srvProvidedFlags {
-		// 	srvProvidedFlags[i].flags.SetParent(flagN)
-		// 	flagN = srvProvidedFlags[i].flags
-		// }
-		combinedFlags = userFlags.SetParent(combinedFlags)
+		flagN := combinedFlags
+		for i := range srvProvidedFlags {
+			srvProvidedFlags[i].flags.SetParent(flagN)
+			flagN = srvProvidedFlags[i].flags
+		}
+		combinedFlags = userFlags.SetParent(flagN)
 	}
-
-	// userFlags.SetParent(combinedFlags)
 
 	err := ff.Parse(combinedFlags, os.Args[1:],
 		ff.WithEnvVars(),
@@ -86,6 +84,12 @@ func parseFlags() ([]string, error) {
 		// TODO: don't want instance for this, either
 		fmt.Println(versionText())
 		os.Exit(0)
+	}
+
+	for _, pv := range srvProvidedFlags {
+		if err := pv.setFn(); err != nil {
+			sFatal(pv.loc, "error instantiating provided value", err)
+		}
 	}
 	return combinedFlags.GetArgs(), nil
 }
@@ -150,28 +154,46 @@ func FlagStringVar(ptr *string, name string, defaultValue string, usage string) 
 	})
 }
 
+// FlagStringList is a flag returning a pointer to a string slice that will be
+// filled with every occurrance of the named flag on the commandline
+func FlagStringList(name string, usage string) *[]string {
+	return addUserFlagNoDefault(name, usage, userFlags.StringList)
+}
+
+// FlagStringListVar adds a string list to the configuration.
+// takes a string slice pointer that will be overwritten and filled with every
+// occurrance of the named flag on the commandline.
+func FlagStringListVar(ptr *[]string, name string, usage string) {
+	addUserFlagVar(name, ff.CoreFlagConfig{
+		Usage: usage,
+		Value: &ffval.StringList{
+			Pointer: ptr,
+		},
+	})
+}
+
 // FlagsProvider is a function providing both a set of flags and a function
 // that will initialize the value of a concrete type from the values those flags
 // provide.
 //
 // Example:
 //
-//		package database
+//	package database
 //
-//		type Client struct{/*...*/}
+//	type Client struct{/*...*/}
 //
-//	 func NewClient(url string)(*Client, error){
-//			/*...*/
+//	func NewClient(url string)(*Client, error){
+//		/*...*/
+//	}
+//
+//	func ClientFlagsProvider()(*ff.CoreFlags, func()(*Client, error){
+//		flags := ff.NewFlags("database client")
+//		dbURL := flags.StringLong("dburl", "", "database URL")
+//		return flags, func()(*Client, error){
+//			return NewClient(dbURL)
 //		}
-//
-//		func ClientFlagsProvider()(*ff.CoreFlags, func()(*Client, error){
-//			flags := ff.NewFlags("database client")
-//			dbURL := flags.StringLong("dburl", "", "database URL")
-//			return flags, func()(*Client, error){
-//				return NewClient(dbURL)
-//			}
-//		})
-//type FlagsProvider[T any] func() (*ff.CoreFlags, func() (T, error))
+//	})
+type FlagsProvider[T any] func() (*ff.CoreFlags, func() (T, error))
 
 // FlagsValue takes a pointer to a value of type T, provided by the given
 // FlagsProvider. The FlagsProvider will then add the set of flags necessary to
@@ -186,28 +208,31 @@ func FlagStringVar(ptr *string, name string, defaultValue string, usage string) 
 //
 //	//dbClient is now initialized.
 //	dbClient.Connect(dbURL)
-// func FlagsValue[T any](ptr *T, provider FlagsProvider[T]) {
-// 	flags, setter := provider()
-// 	srvProvidedFlags = append(srvProvidedFlags, providerCtx{
-// 		flags: flags,
-// 		setFn: func() error {
-// 			val, err := setter()
-// 			if err != nil {
-// 				return err
-// 			}
-// 			*ptr = val
-// 			return nil
-// 		},
-// 	})
-// }
+func FlagsValue[T any](ptr *T, provider FlagsProvider[T]) {
+	muFlags.Lock()
+	defer muFlags.Unlock()
+	hasUserFlags = true
+	flags, setter := provider()
+	srvProvidedFlags = append(srvProvidedFlags, providerCtx{
+		flags: flags,
+		loc:   log.Up(1),
+		setFn: func() error {
+			val, err := setter()
+			if err != nil {
+				return err
+			}
+			*ptr = val
+			return nil
+		},
+	})
+}
 
-// type providerCtx struct {
-// 	flags *ff.CoreFlags
-// 	loc   log.CodeLocation
-// 	setFn func() error
-// }
+type providerCtx struct {
+	flags *ff.CoreFlags
+	loc   log.CodeLocation
+	setFn func() error
+}
 
-// TODO: Better Sync here w/flags
 func addUserFlagVar(flagName string, flag ff.CoreFlagConfig) {
 	muFlags.Lock()
 	defer muFlags.Unlock()
@@ -231,7 +256,6 @@ func addUserFlagVar(flagName string, flag ff.CoreFlagConfig) {
 	}
 }
 
-// TODO: Better Sync here w/flags
 func addUserFlag[T any](flagName string, defaultValue T, usage string, setter func(rune, string, T, string) *T) *T {
 	muFlags.Lock()
 	defer muFlags.Unlock()
@@ -253,6 +277,30 @@ func addUserFlag[T any](flagName string, defaultValue T, usage string, setter fu
 		}
 	}(caller)
 	ptr := setter(short, long, defaultValue, usage)
+	return ptr
+}
+
+func addUserFlagNoDefault[T any](flagName string, usage string, setter func(rune, string, string) *T) *T {
+	muFlags.Lock()
+	defer muFlags.Unlock()
+	caller := log.Up(2)
+	if didServe {
+		sFatal(caller, "flags can't be added after Serve()")
+	}
+	if didParse {
+		sFatal(caller, "flags can't be added after ParseFlags()")
+	}
+	hasUserFlags = true
+	short, long, err := parseFlagName(flagName)
+	if err != nil {
+		sFatal(caller, "invalid flag name", err)
+	}
+	defer func(caller log.CodeLocation) {
+		if v := recover(); v != nil {
+			sFatal(caller, "invalid flag", fmt.Errorf("%v", v))
+		}
+	}(caller)
+	ptr := setter(short, long, usage)
 	return ptr
 }
 
