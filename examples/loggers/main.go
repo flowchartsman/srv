@@ -9,18 +9,19 @@ import (
 )
 
 func main() {
-	s, _ := srv.New(srv.ServiceInfo{
+	srv.Declare(srv.ServiceInfo{
 		Name: "loggers example",
 	})
-	s.Start(logStuff)
+	srv.AddJob(logStuff)
+	srv.Serve()
 }
 
 func logStuff(_ context.Context, log *srv.Logger) error {
 	if runtime.GOOS == "darwin" {
-		log.Info("waiting for four seconds in case you need to approve")
+		log.Info("waiting 4s, in case you need to hit approve", "GOOS", runtime.GOOS)
 		time.Sleep(4 * time.Second)
 	}
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 20; i++ {
 		log.Debug("debug message")
 		log.Info("info message")
 		log.Warn("warn message")
@@ -31,5 +32,5 @@ func logStuff(_ context.Context, log *srv.Logger) error {
 }
 
 func doWork() {
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 }

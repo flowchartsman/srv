@@ -25,13 +25,18 @@ type Handler struct {
 	handlers    map[string]*instrumentation.Handler
 }
 
-func NewHandler(rootHandler *instrumentation.Handler, logger *log.Logger) *Handler {
+func NewHandler(rootHandler *instrumentation.Handler) *Handler {
 	h := &Handler{
-		logger:      logger,
 		rootHandler: rootHandler,
 		handlers:    map[string]*instrumentation.Handler{},
 	}
 	return h
+}
+
+func (h *Handler) SetLogger(logger *log.Logger) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.logger = logger
 }
 
 func (h *Handler) AddLogHandler(lh *instrumentation.Handler) error {

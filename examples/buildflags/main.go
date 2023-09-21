@@ -7,11 +7,13 @@ import (
 )
 
 func main() {
-	s, _ := srv.New(srv.ServiceInfo{
+	srv.Declare(srv.ServiceInfo{
 		Name:  "buildflags example",
 		About: "This service has its version number assigned via build tags.",
+		// Version: "0.0.1", // If you uncomment me, and use the makefile, srv will not like it.
 	})
-	s.Start(logMessage)
+	srv.AddJob(logMessage)
+	srv.Serve()
 }
 
 func logMessage(_ context.Context, log *srv.Logger) error {

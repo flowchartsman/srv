@@ -7,6 +7,12 @@ import (
 	"andy.dev/srv/internal/health"
 )
 
+var srvHealth *health.Handler
+
+func initHealth() {
+	srvHealth = health.NewHandler(srvCtx)
+}
+
 type HealthCheckOption func(hc *health.HealthCheck) error
 
 // Interval sets the health check interval. The job will be scheduled at this
@@ -46,22 +52,4 @@ func MaxFailures(maxFailures int) HealthCheckOption {
 		hc.MaxFailures = maxFailures
 		return nil
 	}
-}
-
-// AddHealthCheck adds an asynchronous self-reporting health check job whose
-// status will be reported at the /livez route. Checks will be considered failed
-// if they return err != nil or if they take longer than the configured timeout.
-// Checks may have an optional maximum number of failures, allowing them to
-// remain healthy until they fail N number of times in a row.
-func (s *instance) AddHealthCheck(ID string, checkFn JobFn, options ...HealthCheckOption) error {
-	hc := &health.HealthCheck{
-		ID: ID,
-		Fn: checkFn,
-	}
-	for _, o := range options {
-		if err := o(hc); err != nil {
-			return err
-		}
-	}
-	return s.healthHandler.AddCheck(hc)
 }

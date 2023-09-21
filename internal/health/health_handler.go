@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -18,8 +17,6 @@ const (
 	defaultTimeout  = 10 * time.Second
 	healthTTL       = 1 * time.Second
 )
-
-var validCheck = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
 
 var (
 	errTimeout = errors.New("timed out")
@@ -40,52 +37,65 @@ type Handler struct {
 	cancel  context.CancelCauseFunc
 	mu      sync.RWMutex
 	logger  *log.Logger
+	checks  []*HealthCheck
 	status  map[string]*checkStatus
 	started bool
 }
 
-func NewHandler(ctx context.Context, logger *log.Logger) *Handler {
+func NewHandler(ctx context.Context) *Handler {
 	hctx, ccf := context.WithCancelCause(ctx)
 	return &Handler{
 		ctx:    hctx,
 		cancel: ccf,
-		logger: logger,
+		checks: []*HealthCheck{},
 		status: map[string]*checkStatus{},
 	}
 }
 
-func (h *Handler) AddCheck(c *HealthCheck) error {
+func (h *Handler) Start(logger *log.Logger) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.started {
+		return
+	}
+	h.logger = logger
+	h.started = true
+	for i := range h.checks {
+		check := h.checks[i]
+		h.status[check.ID] = &checkStatus{
+			Timestamp:   time.Now(),
+			Err:         nil,
+			Failures:    0,
+			MaxFailures: check.MaxFailures,
+		}
+		go h.dispatcher(check.ID, check.Fn, check.Interval, check.Timeout)
+	}
+}
+
+func (h *Handler) AddCheck(check *HealthCheck) error {
 	select {
 	case <-h.ctx.Done():
 		return errClosed
 	default:
 	}
-	if !validCheck.MatchString(c.ID) {
-		return fmt.Errorf("invalid health check name")
-	}
-	if c.Interval <= c.Timeout {
+	if check.Interval <= check.Timeout {
 		return fmt.Errorf("interval must be greater than timeout")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, found := h.status[c.ID]; found {
+	if _, found := h.status[check.ID]; found {
 		return fmt.Errorf("duplicate health check name")
 	}
-	interval := defaultInterval
-	if c.Interval > 0 {
-		interval = c.Interval
+	if check.Interval <= 0 {
+		check.Interval = defaultInterval
 	}
-	timeout := defaultTimeout
-	if c.Timeout > 0 {
-		timeout = c.Timeout
+	if check.Timeout <= 0 {
+		check.Timeout = defaultTimeout
 	}
-	h.status[c.ID] = &checkStatus{
-		Timestamp:   time.Now(),
-		Err:         nil,
-		Failures:    0,
-		MaxFailures: c.MaxFailures,
+	if check.MaxFailures < 0 {
+		check.MaxFailures = 1
 	}
-	go h.dispatcher(c.ID, c.Fn, interval, timeout)
+	h.checks = append(h.checks, check)
 	return nil
 }
 
@@ -159,11 +169,11 @@ func (h *Handler) runCheck(checkID string, fn CheckFn, timeout time.Duration) (f
 	}
 
 	status.Failures++
-	if status.Failures > status.MaxFailures {
+	if status.Failures >= status.MaxFailures {
 		h.logger.Error("health check has failed, service is unhealthy", "healthcheck_id", checkID)
 		return true
 	}
-	h.logger.Warn("health check has failed, will retry", "healthcheck_id", checkID, "num_failures", status.Failures, "max_failures", status.MaxFailures)
+	h.logger.Warn("health check has failed", "healthcheck_id", checkID, "num_failures", status.Failures, "max_failures", status.MaxFailures)
 	return false
 }
 

@@ -126,15 +126,13 @@ func (s *Handler) Handle(_ context.Context, r slog.Record) error {
 		valP(out, s.logger)
 		valP(out, "]")
 	}
-	valP(out, " -")
+	valP(out, " - ")
 
 	if r.Message == "" {
-		io.WriteString(out, " ")
 		if r.NumAttrs() == 0 && len(errAttrs) == 0 {
 			msgP(out, "<no message>")
 		}
 	} else {
-		io.WriteString(out, " ")
 		msgP(out, r.Message)
 	}
 
@@ -143,7 +141,6 @@ func (s *Handler) Handle(_ context.Context, r slog.Record) error {
 		if manSource != "" { // user has manually specified a source location
 			io.WriteString(out, " ")
 			valP(out, "("+manSource+")")
-			io.WriteString(out, " ")
 		} else {
 			if s.doSource {
 				// don't trim, since srvhandler will make that call

@@ -1,4 +1,4 @@
-package config
+package srv
 
 import (
 	"errors"
@@ -10,14 +10,20 @@ import (
 	"github.com/peterbourgon/ff/v4/ffval"
 )
 
-type CommonConfig struct {
-	LogFormat   string
-	LogLevel    string
-	PushGateway string
+var (
+	errHelp    = errors.New("--help")
+	errVersion = errors.New("--version")
+)
+
+type srvConfig struct {
+	logFormat string
+	logLevel  string
+	pushURL   string
+	flags     *ff.CoreFlags
 }
 
-func CommonConfigAndFlags() (*CommonConfig, *ff.CoreFlags, error) {
-	config := &CommonConfig{}
+func initConfig() (*srvConfig, error) {
+	config := &srvConfig{}
 	commonFlags := ff.NewFlags("srv config")
 	commonFlags.AddFlag(ff.CoreFlagConfig{
 		LongName:    "log-level",
@@ -34,7 +40,7 @@ func CommonConfigAndFlags() (*CommonConfig, *ff.CoreFlags, error) {
 				}
 				return s, nil
 			},
-			Pointer: &config.LogLevel,
+			Pointer: &config.logLevel,
 			Default: "info",
 		},
 	})
@@ -53,16 +59,16 @@ func CommonConfigAndFlags() (*CommonConfig, *ff.CoreFlags, error) {
 				}
 				return s, nil
 			},
-			Pointer: &config.LogFormat,
+			Pointer: &config.logFormat,
 			Default: "auto",
 		},
 	})
 	commonFlags.AddFlag(ff.CoreFlagConfig{
-		LongName:    "push-gateway",
+		LongName:    "push-url",
 		Placeholder: "http[s]://<Pushgateway host>",
-		Usage:       `URL to a Pushgateway host. Pushes all metrics to this host at shutdown. Uses the service name as the job. Disables metrics endpoint.`,
+		Usage:       `URL to a Pushgateway host. Pushes all metrics to this host at shutdown using the service name as the job.`,
 		Value: &ffval.String{
-			Pointer: &config.PushGateway,
+			Pointer: &config.pushURL,
 		},
 	})
 	// TODO: --printconfig = <file|k8s|cmdline|env>
@@ -103,9 +109,10 @@ func CommonConfigAndFlags() (*CommonConfig, *ff.CoreFlags, error) {
 		// Srv.ParseFlags()
 	case errors.Is(err, ff.ErrUnknownFlag):
 		// deferring unknown flags until the user flags have a chance to
-		// represent themselves
+		// represent their own flags later
 	default:
-		return nil, nil, err
+		return nil, err
 	}
-	return config, commonFlags, nil
+	config.flags = commonFlags
+	return config, nil
 }
