@@ -34,7 +34,11 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 		}
 		return true
 	})
-	h.w.Write([]byte(fmt.Sprintf("%s - %v\n", r.Message, errVal)))
+	h.w.Write([]byte(r.Message))
+	if errVal != nil {
+		h.w.Write([]byte(fmt.Sprintf(" - %v", errVal)))
+	}
+	h.w.Write([]byte{'\n'})
 	return nil
 }
 
