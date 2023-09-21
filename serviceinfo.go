@@ -48,17 +48,9 @@ func (i ServiceInfo) LogValue() slog.Value {
 // TODO: Strictly use for validation for now. Extract full info for UI/--version=full, when supported
 var semverRx = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
-var validName = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9._-]*$`)
-
 func validateInfo(s ServiceInfo) error {
 	if s.Name == "" {
 		return errors.New("Name cannot be empty")
-	}
-	if !validName.MatchString(s.Name) {
-		return errors.New("Name is invalid")
-	}
-	if s.System != "" && !validName.MatchString(s.System) {
-		return errors.New("System name is invalid")
 	}
 	if s.Version != "" && !semverRx.MatchString(s.Version) {
 		return errors.New("Version is invalid semver number")

@@ -10,8 +10,6 @@ import (
 
 // TODO: full semver breakdown and module stuff for format %+s call.
 type buildData struct {
-	version string
-	// libSrvVersion string
 	goversion   string
 	goos        string
 	goarch      string
@@ -21,13 +19,8 @@ type buildData struct {
 	vcsDirty    bool
 }
 
-func (s *Srv) getBuildData() *buildData {
-	bd := &buildData{
-		version: "<no version>",
-	}
-	if s.srvInfo.Version != "" {
-		bd.version = s.srvInfo.Version
-	}
+func getBuildData() *buildData {
+	bd := &buildData{}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		bd.goversion = bi.GoVersion
 		for _, s := range bi.Settings {
@@ -55,10 +48,9 @@ func (s *Srv) getBuildData() *buildData {
 
 func (bd *buildData) String() string {
 	var sb strings.Builder
-	sb.WriteString(bd.version)
 	// take goversion as a proxy for build data being available
 	if bd.goversion != "" {
-		sb.WriteString(fmt.Sprintf(" (%s %s/%s)", bd.goversion, bd.goos, bd.goarch))
+		sb.WriteString(fmt.Sprintf("(%s %s/%s)", bd.goversion, bd.goos, bd.goarch))
 		// and bd.vcs as a proxy for VCS data being available
 		if bd.vcs != "" {
 			sb.WriteString(fmt.Sprintf(" %s revision: %s", bd.vcs, bd.vcsRevision))

@@ -2,7 +2,6 @@ package srv
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/mitchellh/go-wordwrap"
@@ -15,24 +14,30 @@ const (
 	minwidth = 79
 )
 
-func (s *Srv) printBuildData() {
-	fmt.Fprintf(os.Stdout, "%s v%s\n", s.srvInfo.Name, s.getBuildData())
-	os.Exit(0)
+func versionText() string {
+	var sb strings.Builder
+	sb.WriteString(srvInfo.Name)
+	if srvInfo.Version == "" {
+		sb.WriteString(" <no version>")
+	} else {
+		sb.WriteString(" v")
+		sb.WriteString(srvInfo.Version)
+	}
+	sb.WriteString(" ")
+	sb.WriteString(getBuildData().String())
+	return sb.String()
 }
 
-func (s *Srv) printFlagsHelp(flags ff.Flags, isErr bool) {
-	out := os.Stdout
-	if isErr {
-		out = os.Stderr
-	}
-	fmt.Fprintln(out, s.srvInfo.Name)
-	if s.srvInfo.About != "" {
-		fmt.Fprintln(out, helpBlock(s.srvInfo.About))
-	}
-	fmt.Fprintln(out, "FLAGS")
+func flagsHelp(flags *ff.CoreFlags) (string, error) {
 	var sb strings.Builder
+	// TODO: better place for serviceinfo? Not in instance
+	sb.WriteString(srvInfo.Name + "\n")
+	if srvInfo.About != "" {
+		sb.WriteString(helpBlock(srvInfo.About) + "\n")
+	}
+	sb.WriteString("FLAGS\n")
 	sec := ""
-	flags.WalkFlags(func(flag ff.Flag) error {
+	err := flags.WalkFlags(func(flag ff.Flag) error {
 		flagSec := flag.GetFlags().GetName()
 		if sec == "" {
 			sec = flagSec
@@ -41,7 +46,7 @@ func (s *Srv) printFlagsHelp(flags ff.Flags, isErr bool) {
 		}
 		if sec != flagSec {
 			sec = flag.GetFlags().GetName()
-			fmt.Fprintln(out)
+			sb.WriteString("\n")
 		}
 		sb.WriteString("    ")
 		short, shortFound := flag.GetShortName()
@@ -71,11 +76,13 @@ func (s *Srv) printFlagsHelp(flags ff.Flags, isErr bool) {
 		if flag.GetUsage() != "" {
 			sb.WriteString(helpBlock(flag.GetUsage()))
 		}
-		out.WriteString(sb.String())
-		sb.Reset()
+		sb.WriteString("\n")
 		return nil
 	})
-	os.Exit(0)
+	if err != nil {
+		return "", err
+	}
+	return sb.String(), nil
 }
 
 // func isBoolFlag(flag ff.Flag) bool {

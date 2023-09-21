@@ -9,16 +9,17 @@ import (
 )
 
 func main() {
-	s, _ := srv.New(srv.ServiceInfo{
+	srv.Declare(srv.ServiceInfo{
 		Name: "testsvc",
 	})
-	s.AddShutdownHandlers(
+	srv.AddJob(printStuff)
+	srv.AddShutdownHandler(
 		shutdownGood,
 		srv.Job(shutdownBad, "something went wrong"),
 		shutdownPanic,
 		shutdownSkipped,
 	)
-	s.Start(printStuff)
+	srv.Serve()
 }
 
 func printStuff(_ context.Context, log *srv.Logger) error {

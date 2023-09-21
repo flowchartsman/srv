@@ -23,15 +23,19 @@ func NewText(w io.Writer) slog.Handler {
 	})
 }
 
+func NewHuman(w io.Writer) slog.Handler {
+	return human.NewHandler(human.HandlerOpts{
+		MinLevel: slog.LevelDebug,
+		DoSource: false,
+		// We assume human logging doesn't need to see the service they are
+		// currently running.
+		IgnoreAttrs: []string{"service"},
+	}, w)
+}
+
 func NewAuto(w io.Writer) slog.Handler {
 	if isTerm(w) {
-		return human.NewHandler(human.HandlerOpts{
-			MinLevel: slog.LevelDebug,
-			DoSource: false,
-			// We assume human logging doesn't need to see the service they are
-			// currently running.
-			IgnoreAttrs: []string{"service"},
-		}, w)
+		return NewHuman(w)
 	}
 	return NewJSON(w)
 }

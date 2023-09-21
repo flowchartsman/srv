@@ -6,59 +6,102 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"andy.dev/srv/log"
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffval"
 )
 
-// ParseFlags parses all flags and returns the args left over after a successful parse.
-func (s *Srv) ParseFlags() []string {
-	if s.userFlags.IsParsed() {
-		s.error(log.Up(1), "ignoring extra call to ParseFlags()")
-		return nil
+var (
+	muFlags      sync.Mutex
+	didParse     bool
+	hasUserFlags bool
+	srvFlags     *ff.CoreFlags
+	// flagsproviders
+	userFlags = ff.NewFlags("")
+)
+
+var errAlreadyParsed = errors.New("ParseFlags(): ignoring duplicate call")
+
+// ParseFlags parses all command-line flags and returns the remaining arguments.
+func ParseFlags() []string {
+	caller := log.Up(1)
+	srvMu.Lock()
+	defer srvMu.Unlock()
+	if didServe {
+		sFatal(caller, "ParseFlags() called after Serve(), user flags could be invalid.")
 	}
-	flagN := s.srvFlags
-	// for i := range srvProvidedFlags {
-	// 	srvProvidedFlags[i].flags.SetParent(flagN)
-	// 	flagN = srvProvidedFlags[i].flags
-	// }
-	s.userFlags.SetParent(flagN)
-	err := ff.Parse(s.userFlags, os.Args[1:],
+	args, err := parseFlags()
+	switch {
+	case errors.Is(err, errAlreadyParsed):
+		// already have the package instance. Use it to log a warning
+		sWarn(caller, err.Error())
+	case err != nil:
+		sFatal(caller, "ParseFlags():", err)
+	}
+	return args
+}
+
+func parseFlags() ([]string, error) {
+	muFlags.Lock()
+	defer muFlags.Unlock()
+	if didParse {
+		return nil, errAlreadyParsed
+	}
+
+	combinedFlags := srvFlags
+
+	if hasUserFlags {
+		// flagN := s.srvFlags
+		// for i := range srvProvidedFlags {
+		// 	srvProvidedFlags[i].flags.SetParent(flagN)
+		// 	flagN = srvProvidedFlags[i].flags
+		// }
+		combinedFlags = userFlags.SetParent(combinedFlags)
+	}
+
+	// userFlags.SetParent(combinedFlags)
+
+	err := ff.Parse(combinedFlags, os.Args[1:],
 		ff.WithEnvVars(),
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
 	)
 	switch {
 	case errors.Is(err, ff.ErrHelp):
-		s.printFlagsHelp(s.userFlags, false)
+		helpTxt, err := flagsHelp(combinedFlags)
+		if err != nil {
+			sFatal(noloc, "Failed to print flag help", err)
+		}
+		fmt.Print(helpTxt)
+		os.Exit(0)
+	case errors.Is(err, ff.ErrAlreadyParsed):
+		// this is fine as this will happen with no user flags
 	case err != nil:
-		s.fatal(log.Up(1), "ParseFlags()", err)
+		return nil, err
 	}
-	flagVersion, _ := s.userFlags.GetFlag("version")
-	if flagVersion.IsSet() && flagVersion.GetValue() == "true" {
-		s.printBuildData()
+	versionFlag, _ := combinedFlags.GetFlag("version")
+	if versionFlag.IsSet() && versionFlag.GetValue() == "true" {
+		// TODO: don't want instance for this, either
+		fmt.Println(versionText())
+		os.Exit(0)
 	}
-	// for i := range srvProvidedFlags {
-	// 	if err := srvProvidedFlags[i].setFn(); err != nil {
-	// 		sFatal(srvProvidedFlags[i].loc, "srv.ParseFlags()", err)
-	// 	}
-	// }
-	return s.userFlags.GetArgs()
+	return combinedFlags.GetArgs(), nil
 }
 
 // FlagBool adds a boolean flag to the configuration.
 //
 // Returns a *bool that will be set when [ParseFlags] is called.
-func (s *Srv) FlagBool(name string, defaultValue bool, usage string) *bool {
-	return addUserFlag(s, name, defaultValue, usage, s.userFlags.Bool)
+func FlagBool(name string, defaultValue bool, usage string) *bool {
+	return addUserFlag(name, defaultValue, usage, userFlags.Bool)
 }
 
 // FlagBoolVar adds a boolean flag to the configuration.
 //
 // Takes a *bool that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagBoolVar(ptr *bool, name string, defaultValue bool, usage string) {
-	addUserFlagVar(s, name, ff.CoreFlagConfig{
+func FlagBoolVar(ptr *bool, name string, defaultValue bool, usage string) {
+	addUserFlagVar(name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.Bool{
 			Pointer: ptr,
@@ -70,15 +113,15 @@ func (s *Srv) FlagBoolVar(ptr *bool, name string, defaultValue bool, usage strin
 // FlagInt adds an integer flag to the configuration.
 //
 // Returns an *int that will be set when [ParseFlags] is called.
-func (s *Srv) FlagInt(name string, defaultValue int, usage string) *int {
-	return addUserFlag(s, name, defaultValue, usage, s.userFlags.Int)
+func FlagInt(name string, defaultValue int, usage string) *int {
+	return addUserFlag(name, defaultValue, usage, userFlags.Int)
 }
 
 // FlagIntVar adds an integer flag to the configuration
 //
 // Takes an *int that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagIntVar(ptr *int, name string, defaultValue int, usage string) {
-	addUserFlagVar(s, name, ff.CoreFlagConfig{
+func FlagIntVar(ptr *int, name string, defaultValue int, usage string) {
+	addUserFlagVar(name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.Int{
 			Pointer: ptr,
@@ -90,15 +133,15 @@ func (s *Srv) FlagIntVar(ptr *int, name string, defaultValue int, usage string) 
 // FlagString adds a string flag to the configuration.
 //
 // Returns a *string that will be set when [ParseFlags] is called.
-func (s *Srv) FlagString(name string, defaultValue string, usage string) *string {
-	return addUserFlag(s, name, defaultValue, usage, s.userFlags.String)
+func FlagString(name string, defaultValue string, usage string) *string {
+	return addUserFlag(name, defaultValue, usage, userFlags.String)
 }
 
 // FlagStringVar adds a string flag to the configuration.
 //
 // Takes a *string that will be overwritten when [ParseFlags] is called.
-func (s *Srv) FlagStringVar(ptr *string, name string, defaultValue string, usage string) {
-	addUserFlagVar(s, name, ff.CoreFlagConfig{
+func FlagStringVar(ptr *string, name string, defaultValue string, usage string) {
+	addUserFlagVar(name, ff.CoreFlagConfig{
 		Usage: usage,
 		Value: &ffval.String{
 			Pointer: ptr,
@@ -165,49 +208,52 @@ func (s *Srv) FlagStringVar(ptr *string, name string, defaultValue string, usage
 // }
 
 // TODO: Better Sync here w/flags
-func addUserFlag[T any](s *Srv, flagName string, defaultValue T, usage string, setter func(rune, string, T, string) *T) *T {
+func addUserFlagVar(flagName string, flag ff.CoreFlagConfig) {
+	muFlags.Lock()
+	defer muFlags.Unlock()
 	caller := log.Up(2)
-	if s.started {
-		s.fatal(caller, "flags can't be added after Start()")
+	if didServe {
+		sFatal(caller, "flags can't be added after Serve()")
 	}
-	if s.userFlags.IsParsed() {
-		s.fatal(caller, "flags can't be added after ParseFlags()")
+	if didParse {
+		sFatal(caller, "flags can't be added after ParseFlags()")
 	}
-	s.hasUserFlags = true
+	hasUserFlags = true
 	short, long, err := parseFlagName(flagName)
 	if err != nil {
-		s.fatal(caller, "invalid flag name", err)
+		sFatal(caller, "invalid flag name", err)
+	}
+	flag.ShortName = short
+	flag.LongName = long
+	_, err = userFlags.AddFlag(flag)
+	if err != nil {
+		sFatal(caller, "invalid flag", err)
+	}
+}
+
+// TODO: Better Sync here w/flags
+func addUserFlag[T any](flagName string, defaultValue T, usage string, setter func(rune, string, T, string) *T) *T {
+	muFlags.Lock()
+	defer muFlags.Unlock()
+	caller := log.Up(2)
+	if didServe {
+		sFatal(caller, "flags can't be added after Serve()")
+	}
+	if didParse {
+		sFatal(caller, "flags can't be added after ParseFlags()")
+	}
+	hasUserFlags = true
+	short, long, err := parseFlagName(flagName)
+	if err != nil {
+		sFatal(caller, "invalid flag name", err)
 	}
 	defer func(caller log.CodeLocation) {
 		if v := recover(); v != nil {
-			s.fatal(caller, "invalid flag", fmt.Errorf("%v", v))
+			sFatal(caller, "invalid flag", fmt.Errorf("%v", v))
 		}
 	}(caller)
 	ptr := setter(short, long, defaultValue, usage)
 	return ptr
-}
-
-// TODO: this one can actually be a method again
-// TODO: Better Sync here w/flags
-func addUserFlagVar(s *Srv, flagName string, flag ff.CoreFlagConfig) {
-	caller := log.Up(2)
-	if s.started {
-		s.fatal(caller, "flags can't be added after Start()")
-	}
-	if s.userFlags.IsParsed() {
-		s.fatal(caller, "flags can't be added after ParseFlags()")
-	}
-	s.hasUserFlags = true
-	short, long, err := parseFlagName(flagName)
-	if err != nil {
-		s.fatal(caller, "invalid flag name", err)
-	}
-	flag.ShortName = short
-	flag.LongName = long
-	_, err = s.userFlags.AddFlag(flag)
-	if err != nil {
-		s.fatal(caller, "invalid flag", err)
-	}
 }
 
 var (

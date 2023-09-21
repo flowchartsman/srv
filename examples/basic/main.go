@@ -9,12 +9,13 @@ import (
 )
 
 func main() {
-	s, _ := srv.New(srv.ServiceInfo{
+	srv.Declare(srv.ServiceInfo{
 		Name:   "basicsvc",
 		System: "srv examples",
 	})
-	s.AddShutdownHandlers(shutdown)
-	s.Start(jobWillFail)
+	srv.AddShutdownHandler(shutdown)
+	srv.AddJob(jobWillFail)
+	srv.Serve()
 }
 
 func jobWillFail(_ context.Context, log *srv.Logger) error {

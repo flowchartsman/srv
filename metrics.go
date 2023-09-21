@@ -10,6 +10,8 @@ import (
 	"github.com/go-kit/kit/metrics"
 	promkit "github.com/go-kit/kit/metrics/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 const (
@@ -17,17 +19,56 @@ const (
 	TimerMetricSuffix   = `_duration_seconds`
 )
 
+var (
+	srvRegistry *prometheus.Registry
+	srvErrors   metrics.Counter
+	srvWarnings metrics.Counter
+	srvInfos    metrics.Counter
+	srvPushURL  string
+	srvPusher   *push.Pusher
+)
+
+func initMetrics() {
+	srvRegistry = prometheus.NewRegistry()
+	// by creating a new registry, we avoid the old memstats-style Go runtime
+	// metrics, and can register the newer runtime/metrics driven stats instead.
+	srvRegistry.MustRegister(collectors.NewGoCollector(
+		collectors.WithGoCollectorMemStatsMetricsDisabled(),
+		collectors.WithGoCollectorRuntimeMetrics(collectors.MetricsAll),
+	))
+	errVec := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "error_messages",
+		Help: "the total number of error messages logged",
+	}, []string{"logger"})
+	srvRegistry.MustRegister(errVec)
+	wrnVec := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "warning_messages",
+		Help: "the total number of warning messages logged",
+	}, []string{"logger"})
+	srvRegistry.MustRegister(wrnVec)
+	infVec := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "info_messages",
+		Help: "the total number of info messages logged",
+	}, []string{"logger"})
+	srvRegistry.MustRegister(infVec)
+	srvErrors = promkit.NewCounter(errVec)
+	srvWarnings = promkit.NewCounter(wrnVec)
+	srvInfos = promkit.NewCounter(infVec)
+}
+
 // Registry returns the service prometheus registry for plugins/packages that
 // can use it.
-func (s *Srv) Registry() prometheus.Registerer {
-	return s.registry
+func Registry() prometheus.Registerer {
+	return srvRegistry
 }
+
+// TODO add guard to all new funcs to fail gracefully instead of panicing.
 
 // NewCounter returns a Prometheus Counter.
 //
 // NAMING: all counters will be automatically suffixed with _total if not already.
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counter {
+func NewCounter(name, help string, labelNames ...string) metrics.Counter {
 	if !strings.HasSuffix(name, CounterMetricSuffix) {
 		name += "_total"
 	}
@@ -35,7 +76,7 @@ func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counte
 		Name: name,
 		Help: help,
 	}, labelNames)
-	s.registry.MustRegister(counter)
+	srvRegistry.MustRegister(counter)
 	return promkit.NewCounter(counter)
 }
 
@@ -43,37 +84,37 @@ func (s *Srv) NewCounter(name, help string, labelNames ...string) metrics.Counte
 //
 // NAMING: Gauges should not be suffixed with "_total".
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewGauge(name, help string, labelNames ...string) metrics.Gauge {
+func NewGauge(name, help string, labelNames ...string) metrics.Gauge {
 	gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: name,
 		Help: help,
 	}, labelNames)
-	s.registry.MustRegister(gauge)
+	srvRegistry.MustRegister(gauge)
 	return promkit.NewGauge(gauge)
 }
 
 // NewSummary returns a Prometheus Summary.
 //
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewSummary(name, help string, labelNames ...string) metrics.Histogram {
+func NewSummary(name, help string, labelNames ...string) metrics.Histogram {
 	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{
 		Name: name,
 		Help: help,
 	}, labelNames)
-	s.registry.MustRegister(summary)
+	srvRegistry.MustRegister(summary)
 	return promkit.NewSummary(summary)
 }
 
 // NewHistogram returns a Prometheus Histogram.
 //
 // NOTE: value cardinality must match label cardinality to use .With().
-func (s *Srv) NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
+func NewHistogram(name, help string, buckets []float64, labelNames ...string) metrics.Histogram {
 	histogram := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    name,
 		Help:    help,
 		Buckets: buckets,
 	}, labelNames)
-	s.registry.MustRegister(histogram)
+	srvRegistry.MustRegister(histogram)
 	return promkit.NewHistogram(histogram)
 }
 
@@ -111,7 +152,7 @@ type Timer struct {
 //
 // NAMING: Timers will automatically be suffixed with `_duration_seconds`, so
 // there is no need to supply this.
-func (s *Srv) NewTimer(name, help string, buckets []time.Duration, labelNames ...string) *Timer {
+func NewTimer(name, help string, buckets []time.Duration, labelNames ...string) *Timer {
 	floatBuckets := make([]float64, len(buckets))
 	for i := range buckets {
 		floatBuckets[i] = buckets[i].Seconds()
@@ -121,7 +162,7 @@ func (s *Srv) NewTimer(name, help string, buckets []time.Duration, labelNames ..
 		Help:    help,
 		Buckets: floatBuckets,
 	}, labelNames)
-	s.registry.MustRegister(h)
+	srvRegistry.MustRegister(h)
 	return &Timer{hv: h}
 }
 
@@ -141,6 +182,8 @@ type promhttpLogger struct {
 	logger *log.Logger
 }
 
+// internal type so prometheus' server logs don't get lost if they happen to
+// ever display.
 func (pl *promhttpLogger) Println(v ...any) {
 	// code inspection reveals that v is always [string, error], the latter of
 	// which mught which might be prometheus.MultiErr, which is a []error. Still
