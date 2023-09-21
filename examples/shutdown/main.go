@@ -10,7 +10,7 @@ import (
 
 func main() {
 	srv.Declare(srv.ServiceInfo{
-		Name: "testsvc",
+		Name: "shutdown_example",
 	})
 	srv.AddJob(printStuff)
 	srv.AddShutdownHandler(
