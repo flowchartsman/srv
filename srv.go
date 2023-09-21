@@ -18,7 +18,6 @@ var (
 	srvMu      sync.Mutex
 	didDeclare bool
 	didServe   bool
-	configErr  error
 )
 
 var (
@@ -185,7 +184,7 @@ func init() {
 	srvlogger.Store(log.NewLogger(slog.New(inithandler.New())))
 	config, err := initConfig()
 	if err != nil {
-		configErr = err
+		sFatal(noloc, err.Error())
 	}
 	if config.flags != nil {
 		srvFlags = config.flags

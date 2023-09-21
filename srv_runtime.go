@@ -29,9 +29,6 @@ var (
 )
 
 func serve(serviceInfo ServiceInfo) {
-	if configErr != nil {
-		sFatal(noloc, "Configuration error", configErr)
-	}
 	mux := flow.New()
 
 	metricHandler := promhttp.HandlerFor(srvRegistry, promhttp.HandlerOpts{
