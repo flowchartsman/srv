@@ -191,6 +191,9 @@ func init() {
 		srvFlags = config.flags
 	}
 	initMetrics()
+	if config.pushURL != "" {
+		srvPushURL = config.pushURL
+	}
 	initLogging(config)
 	initHealth()
 	if termlogErr != nil {

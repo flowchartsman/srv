@@ -24,6 +24,7 @@ var (
 	srvErrors   metrics.Counter
 	srvWarnings metrics.Counter
 	srvInfos    metrics.Counter
+	srvPushURL  string
 	srvPusher   *push.Pusher
 )
 

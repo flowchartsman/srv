@@ -13,6 +13,7 @@ import (
 	"andy.dev/srv/log"
 	"github.com/alexedwards/flow"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/push"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -41,6 +42,9 @@ func serve(serviceInfo ServiceInfo) {
 		EnableOpenMetrics: true,
 	})
 	mux.Handle("/metrics", metricHandler)
+	if srvPushURL != "" {
+		srvPusher = push.New(srvPushURL, srvInfo.Name).Gatherer(srvRegistry)
+	}
 
 	// add pprof routes
 	mux.Handle("/debug/pprof", http.RedirectHandler("/debug/pprof/", http.StatusSeeOther))
