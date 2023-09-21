@@ -35,18 +35,15 @@ func flagsHelp(flags *ff.CoreFlags) (string, error) {
 	if srvInfo.About != "" {
 		sb.WriteString(helpBlock(srvInfo.About) + "\n")
 	}
-	sb.WriteString("FLAGS\n")
+	sb.WriteString("FLAGS")
 	sec := ""
 	err := flags.WalkFlags(func(flag ff.Flag) error {
 		flagSec := flag.GetFlags().GetName()
-		if sec == "" {
-			sec = flagSec
-		} else {
-			sb.WriteString("\n")
-		}
+		sb.WriteString("\n")
+
 		if sec != flagSec {
 			sec = flag.GetFlags().GetName()
-			sb.WriteString("\n")
+			sb.WriteString(sec + "\n")
 		}
 		sb.WriteString("    ")
 		short, shortFound := flag.GetShortName()
@@ -75,8 +72,8 @@ func flagsHelp(flags *ff.CoreFlags) (string, error) {
 		sb.WriteString("\n")
 		if flag.GetUsage() != "" {
 			sb.WriteString(helpBlock(flag.GetUsage()))
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 		return nil
 	})
 	if err != nil {
