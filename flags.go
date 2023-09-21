@@ -63,6 +63,7 @@ func parseFlags() ([]string, error) {
 
 	err := ff.Parse(combinedFlags, os.Args[1:],
 		ff.WithEnvVars(),
+		ff.WithEnvVarSplit(`,`),
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
 	)
