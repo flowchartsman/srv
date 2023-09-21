@@ -17,8 +17,9 @@ type jobConfig struct {
 
 func main() {
 	srv.Declare(srv.ServiceInfo{
-		Name:   "flags_example",
+		Name:   "flagsprovider_example",
 		System: "srv examples",
+		About:  "I count a single word on various URLs",
 	})
 
 	cfg := &jobConfig{}
