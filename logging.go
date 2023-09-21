@@ -77,7 +77,7 @@ func initLogging(config *srvConfig) {
 	case "error":
 		rootLevel = slog.LevelError
 	}
-	logHandler := instrumentation.NewHandler(formatter, instrumentation.HandlerOptions{
+	srvLogHandler = instrumentation.NewHandler(formatter, instrumentation.HandlerOptions{
 		MinLevel:     rootLevel,
 		ShowLocation: true,
 		TrimCode:     true,
@@ -86,8 +86,8 @@ func initLogging(config *srvConfig) {
 		InfoCounter:  srvInfos.With("logger", "root"),
 	})
 
-	srvLevelHandler = loglevelhandler.NewHandler(logHandler)
-	srvlogger.Store(log.NewLogger(slog.New(logHandler)))
+	srvLevelHandler = loglevelhandler.NewHandler(srvLogHandler)
+	srvlogger.Store(log.NewLogger(slog.New(srvLogHandler)))
 }
 
 // NewLogger creates a [*log.Logger] that will attach a "logger" label to its
