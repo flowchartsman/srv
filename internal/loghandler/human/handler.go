@@ -67,19 +67,45 @@ func (s *Handler) Enabled(_ context.Context, level slog.Level) bool {
 
 // implements Handler.Handle.
 func (s *Handler) Handle(_ context.Context, r slog.Record) error {
-	out := s.writer
-
 	var errAttrs []slog.Attr
 	var manSource string
-	// var component string
 
 	buf := GetBuf()
 	defer PutBuf(buf)
+
+	valP(buf, r.Time.Format("Jan 02 15:04:05"))
+	io.WriteString(buf, " ")
+	switch r.Level {
+	case slog.LevelDebug:
+		valP(buf, "DBG")
+	case slog.LevelInfo:
+		io.WriteString(buf, "INF")
+	case slog.LevelWarn:
+		warnP(buf, "WRN")
+	case slog.LevelError:
+		errorP(buf, "ERR")
+	}
+	if len(s.logger) > 0 {
+		valP(buf, "[")
+		valP(buf, s.logger)
+		valP(buf, "]")
+	}
+	valP(buf, " - ")
+
+	if r.Message == "" {
+		if r.NumAttrs() == 0 && len(errAttrs) == 0 {
+			msgP(buf, "<no message>")
+		}
+	} else {
+		msgP(buf, r.Message)
+	}
 
 	if s.group != "" {
 		keyP(buf, s.group+"=")
 		valP(buf, "[")
 	}
+
+	errLoc := buf.Len()
 
 	r.Attrs(func(a slog.Attr) bool {
 		switch {
@@ -100,59 +126,38 @@ func (s *Handler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
-	// static ones at end
+	// static attrs towards the end
 	buf.WriteString(s.static)
 
 	if s.group != "" {
-		valP(buf, " ]")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	valP(out, r.Time.Format("Jan 02 15:04:05"))
-	io.WriteString(out, " ")
-	switch r.Level {
-	case slog.LevelDebug:
-		valP(out, "DBG")
-	case slog.LevelInfo:
-		io.WriteString(out, "INF")
-	case slog.LevelWarn:
-		warnP(out, "WRN")
-	case slog.LevelError:
-		errorP(out, "ERR")
-	}
-	if len(s.logger) > 0 {
-		valP(out, "[")
-		valP(out, s.logger)
-		valP(out, "]")
-	}
-	valP(out, " - ")
-
-	if r.Message == "" {
-		if r.NumAttrs() == 0 && len(errAttrs) == 0 {
-			msgP(out, "<no message>")
-		}
-	} else {
-		msgP(out, r.Message)
+		valP(buf, "]")
 	}
 
-	// don't care about source line if it's not an error
-	if r.Level > slog.LevelInfo {
-		if manSource != "" { // user has manually specified a source location
-			io.WriteString(out, " ")
-			valP(out, "("+manSource+")")
-		} else {
-			if s.doSource {
+	if s.doSource {
+		// don't care about source line if it's not an error or warning
+		if r.Level > slog.LevelInfo {
+			if manSource != "" { // user has manually specified a source location
+				buf.WriteString(" ")
+				valP(buf, "("+manSource+")")
+			} else {
 				// don't trim, since srvhandler will make that call
 				loc := logfmt.FmtRecord(r, false)
 				if loc != "" {
-					io.WriteString(out, " ")
-					valP(out, "("+loc+")")
+					buf.WriteString(" ")
+					valP(buf, "("+loc+")")
 				}
 			}
 		}
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	if buf.Len() == 0 && len(errAttrs) == 0 && s.staticErr == "" {
+		return nil
+	}
+	out := s.writer
+	out.Write(buf.Bytes()[:errLoc])
+	// error attrs first
 	if len(errAttrs) > 0 {
 		for i := range errAttrs {
 			io.WriteString(out, " ")
@@ -160,14 +165,11 @@ func (s *Handler) Handle(_ context.Context, r slog.Record) error {
 		}
 	}
 	if s.staticErr != "" {
-		io.WriteString(out, " ")
-		io.WriteString(out, s.staticErr)
+		io.WriteString(buf, " ")
+		io.WriteString(buf, s.staticErr)
 	}
-
-	if buf.Len() > 0 {
-		out.Write(buf.Bytes())
-	}
-	io.WriteString(out, "\n")
+	s.writer.Write(buf.Bytes()[errLoc:])
+	io.WriteString(s.writer, "\n")
 	return nil
 }
 
